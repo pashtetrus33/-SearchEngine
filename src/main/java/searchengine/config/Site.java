@@ -8,4 +8,6 @@ import lombok.Setter;
 public class Site {
     private String url;
     private String name;
+    private String referrer;
+    private String userAgent;
 }

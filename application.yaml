@@ -1,0 +1,28 @@
+server:
+  port: 8080
+
+spring:
+  datasource:
+    url: jdbc:mysql://127.0.0.1:3306/search_engine?useSSL=false&requireSSL=false&allowPublicKeyRetrieval=true
+    username: user
+    password: password
+    schema: classpath:schema.sql
+    initialization-mode: always
+
+  jpa:
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQL8Dialect
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    open-in-view: true
+
+
+# example values
+indexing-settings:
+  sites:
+    - url: http://www.playback.ru
+      name: PlayBack.Ru
+  referrer: https://www.google.com
+  user-agent: HeliontSearchBot;
