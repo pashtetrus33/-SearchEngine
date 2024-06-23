@@ -14,7 +14,7 @@ spring:
       hibernate:
         dialect: org.hibernate.dialect.MySQL8Dialect
     hibernate:
-      ddl-auto: update
+      ddl-auto: create
     show-sql: true
     open-in-view: true
 
@@ -22,7 +22,9 @@ spring:
 # example values
 indexing-settings:
   sites:
-    - url: http://www.playback.ru
+    - url: https://www.playback.ru
       name: PlayBack.Ru
+    - url: https://lenta.ru
+      name: Lenta.Ru
   referrer: https://www.google.com
   user-agent: HeliontSearchBot;

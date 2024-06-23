@@ -22,11 +22,11 @@ public class WebSite {
     private LocalDateTime statusTime;
 
     @Column(name = "last_error", columnDefinition = "TEXT")
-    String lastError;
+    private String lastError;
 
     @Column(name = "url", nullable = false)
-    String url;
+    private String url;
 
     @Column(name = "name", nullable = false)
-    String name;
+    private String name;
 }

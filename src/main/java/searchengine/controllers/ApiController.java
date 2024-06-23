@@ -2,9 +2,6 @@ package searchengine.controllers;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.configurationprocessor.json.JSONException;
-import org.springframework.boot.configurationprocessor.json.JSONObject;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -15,8 +12,6 @@ import searchengine.dto.statistics.StatisticsResponse;
 import searchengine.services.IndexingService;
 import searchengine.services.StatisticsService;
 
-import java.io.IOException;
-
 @Slf4j
 @RequiredArgsConstructor
 @RestController
@@ -25,7 +20,6 @@ public class ApiController {
 
     private final StatisticsService statisticsService;
     private final IndexingService indexingService;
-    private boolean indexingInProgress = false; // Флаг для отслеживания текущего состояния индексации
 
     @GetMapping("/statistics")
     public ResponseEntity<StatisticsResponse> statistics() {
@@ -35,7 +29,7 @@ public class ApiController {
     @GetMapping("/startIndexing")
     public IndexingResponse startIndexing() {
         IndexingResponse response = new IndexingResponse();
-        if (indexingInProgress) {
+        if (indexingService.indexingInProgress()) {
             response.setResult(false);
             response.setError("Индексация уже запущена");
             return response;
@@ -43,7 +37,6 @@ public class ApiController {
 
         try {
             indexingService.startIndexing();
-            indexingInProgress = true;
             response.setResult(true);
             return response;
         } catch (Exception e) {
@@ -56,7 +49,7 @@ public class ApiController {
     @GetMapping("/stopIndexing")
     public IndexingResponse stopIndexing() {
         IndexingResponse response = new IndexingResponse();
-        if (!indexingInProgress) {
+        if (!indexingService.indexingInProgress()) {
             response.setResult(false);
             response.setError("Индексация не запущена");
             return response;
@@ -64,7 +57,6 @@ public class ApiController {
 
         try {
             indexingService.stopIndexing();
-            indexingInProgress = false;
             response.setResult(true);
             return response;
         } catch (Exception e) {
@@ -72,5 +64,10 @@ public class ApiController {
             response.setError("Ошибка при остановке индексации: " + e.getMessage());
             return response;
         }
+    }
+
+    @GetMapping("/indexingStatus")
+    public SseEmitter getIndexingStatus() {
+        return indexingService.getStatusEmitter();
     }
 }
