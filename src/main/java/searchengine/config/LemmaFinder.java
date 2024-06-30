@@ -3,6 +3,9 @@ package searchengine.config;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.lucene.morphology.LuceneMorphology;
 import org.apache.lucene.morphology.russian.RussianLuceneMorphology;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
+import org.jsoup.safety.Safelist;
 
 import java.io.IOException;
 import java.util.*;
@@ -97,11 +100,20 @@ public class LemmaFinder {
     }
 
     private String[] arrayContainsRussianWords(String text) {
+        text = stripHtmlTags(text);
         return text.toLowerCase(Locale.ROOT)
                 .replaceAll("([^а-я\\s])", " ")
                 .trim()
                 .split("\\s+");
     }
+
+    // Метод для удаления HTML тегов из строки
+    public String stripHtmlTags(String html) {
+        // Используем Jsoup для парсинга HTML и очистки от тегов
+        Document doc = Jsoup.parse(html);
+        return Jsoup.clean(doc.body().html(), Safelist.none());
+    }
+
 
     private boolean isCorrectWordForm(String word) {
         List<String> wordInfo = luceneMorphology.getMorphInfo(word);

@@ -11,4 +11,6 @@ public interface IndexingService {
     boolean indexingInProgress();
 
     SseEmitter getStatusEmitter();
+
+    boolean indexPage(String url);
 }

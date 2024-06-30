@@ -2,22 +2,27 @@ package searchengine.services;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.jsoup.Connection;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import searchengine.config.Site;
 import searchengine.config.PageCrawler;
 import searchengine.config.SitesConfig;
 import searchengine.model.Status;
+import searchengine.model.WebPage;
 import searchengine.model.WebSite;
 import searchengine.repositories.WebPageRepository;
 import searchengine.repositories.WebSiteRepository;
 
 import java.io.IOException;
+import java.net.MalformedURLException;
+import java.net.URL;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
-import java.util.logging.Logger;
 
 import static searchengine.config.PageCrawler.visitedLinks;
 
@@ -29,15 +34,15 @@ public class IndexingServiceImpl implements IndexingService {
     private final SitesConfig sitesConfig;
     private final WebSiteRepository webSiteRepository;
     private final WebPageRepository webPageRepository;
-    private final List<ForkJoinPool> forkJoinPoolList = new ArrayList<>();
-    private final List<Thread> threads = new ArrayList<>();
-    private final List<SseEmitter> emitters = new ArrayList<>();
+    private final List<ForkJoinPool> forkJoinPoolList = new CopyOnWriteArrayList<>();
+    private final List<Thread> threads = new CopyOnWriteArrayList<>();
+    private final List<SseEmitter> emitters = new CopyOnWriteArrayList<>();
 
     @Override
     public void startIndexing() {
         indexingInProgress = true;
         ExecutorService executorService = Executors.newFixedThreadPool(sitesConfig.getSites().size());
-        List<Future<?>> futures = new ArrayList<>();
+        List<Future<?>> futures = new CopyOnWriteArrayList<>();
 
         for (Site site : sitesConfig.getSites()) {
             Future<?> future = executorService.submit(() -> {
@@ -173,9 +178,83 @@ public class IndexingServiceImpl implements IndexingService {
         }
     }
 
-
     @Override
     public boolean indexingInProgress() {
         return indexingInProgress;
+    }
+
+    @Override
+    public boolean indexPage(String url) {
+        Site site = isPageFromSite(url);
+        if (site != null) {
+            log.info("Site {}", site);
+            WebSite webSite = webSiteRepository.findByUrl(site.getUrl());
+            if (webSite == null) {
+                // Создание новой записи в таблице site со статусом INDEXING
+                webSite = new WebSite();
+                webSite.setUrl(site.getUrl());
+                webSite.setName(site.getName());
+                webSite.setStatus(Status.INDEXING);
+                webSite.setStatusTime(LocalDateTime.now());
+                webSiteRepository.save(webSite);
+            } else {
+                if (webPageRepository.existsWebPageByPath(url)) {
+                    System.out.println("Page is already indexed");
+                    //очищаем все об этой странице из таблиц page lemma index
+                    webPageRepository.deleteWebPageByPath(url);
+                }
+            }
+            parsePage(url, webSite);
+            return true;
+        }
+        return false;
+    }
+
+    private void parsePage(String url, WebSite webSite) {
+        Connection.Response response;
+        Document document;
+        try {
+            response = Jsoup.connect(url).execute();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+
+        try {
+            document = response.parse();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+        log.info("\nParsing page: " + url);
+        WebPage webPage = new WebPage();
+        webPage.setCode(response.statusCode());
+        webPage.setPath(url);
+        webPage.setContent(document.html());
+        webPage.setWebSite(webSite);
+        webSite.setStatus(Status.INDEXED);
+        webSite.setStatusTime(LocalDateTime.now());
+        webSiteRepository.save(webSite);
+        webPageRepository.save(webPage);
+    }
+
+    private Site isPageFromSite(String pageUrl) {
+        try {
+            URL pageUri = new URL(pageUrl);
+            String pageHost = pageUri.getHost().replaceFirst("^www\\.", "");
+
+            for (Site site : sitesConfig.getSites()) {
+                URL siteUrl = new URL(site.getUrl());
+                String siteHost = siteUrl.getHost().replaceFirst("^www\\.", "");
+
+                // Сравниваем домены
+                if (pageHost.equalsIgnoreCase(siteHost)) {
+                    return site;
+                }
+            }
+        } catch (MalformedURLException e) {
+            log.error("MalformedURLException {}", e.getMessage());
+            return null;
+        }
+
+        return null;
     }
 }

@@ -1496,8 +1496,12 @@ var API = function(){
                 } else {
                     if ($this.next('.API-error').length) {
                         $this.next('.API-error').text(result.error);
+
+
                     } else {
                         $this.after('<div class="API-error">' + result.error + '</div>');
+
+
                     }
                 }
             }
@@ -1513,7 +1517,7 @@ var API = function(){
                     if ($this.next('.API-success').length) {
                         $this.next('.API-success').text('Страница добавлена/обновлена успешно');
                     } else {
-                        $this.after('<div class="API-success">Страница поставлена в очередь на обновление / добавление</div>');
+                        $this.after('<div class="API-success">Страница добавлена/обновлена успешно!</div>');
                     }
                 } else {
                     if ($this.next('.API-success').length) {
@@ -1697,7 +1701,11 @@ var API = function(){
                     .data('send', 'startIndexing')
                     .data('alttext', text)
                     .addClass('btn_check');
-                $('.UpdatePageBlock').hide(0);
+                $('.UpdatePageBlock').show(0)
+                $('.API-error').remove();
+                $('.API-success').remove();
+                $('.form-input').val('');
+
             }
         });
 
@@ -1721,6 +1729,12 @@ var API = function(){
             if ($element.data('send') == 'startIndexing' || $element.data('send') == 'stopIndexing'){
                 if (check) {
                     $('.UpdatePageBlock').show(0)
+                    $('.API-error').remove();
+                    $('.API-success').remove();
+                    $('.form-input').val('');
+
+
+
                 } else {
                     $('.UpdatePageBlock').hide(0)
                 }
@@ -1774,7 +1788,6 @@ var API = function(){
                     if (($this.hasClass('form') && e.type==='submit')
                         || (e.type==='click' && !$this.hasClass('form'))){
                         e.preventDefault();
-
                         switch ($this.data('send')) {
                             case 'indexPage':
                                 var $page = $this.closest('.form').find('input[name="page"]');
@@ -1801,6 +1814,7 @@ var API = function(){
                                 break;
 
                         }
+
                         sendData(
                             send[$this.data('send')].address,
                             send[$this.data('send')].type,
