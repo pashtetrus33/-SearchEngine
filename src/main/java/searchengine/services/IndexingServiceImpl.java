@@ -6,13 +6,14 @@ import org.jsoup.Connection;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import searchengine.config.Site;
 import searchengine.config.PageCrawler;
 import searchengine.config.SitesConfig;
-import searchengine.model.Status;
-import searchengine.model.WebPage;
-import searchengine.model.WebSite;
+import searchengine.model.*;
+import searchengine.repositories.IndexRepository;
+import searchengine.repositories.LemmaRepository;
 import searchengine.repositories.WebPageRepository;
 import searchengine.repositories.WebSiteRepository;
 
@@ -20,7 +21,6 @@ import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
 
@@ -30,16 +30,24 @@ import static searchengine.config.PageCrawler.visitedLinks;
 @Service
 @RequiredArgsConstructor
 public class IndexingServiceImpl implements IndexingService {
-    private boolean indexingInProgress = false; // Флаг для отслеживания текущего состояния индексации
+    private volatile boolean indexingInProgress = false; // Использование volatile для обеспечения видимости между потоками
     private final SitesConfig sitesConfig;
     private final WebSiteRepository webSiteRepository;
     private final WebPageRepository webPageRepository;
+    private final IndexRepository indexRepository;
+    private final LemmaRepository lemmaRepository;
     private final List<ForkJoinPool> forkJoinPoolList = new CopyOnWriteArrayList<>();
-    private final List<Thread> threads = new CopyOnWriteArrayList<>();
     private final List<SseEmitter> emitters = new CopyOnWriteArrayList<>();
+    private final LemmaService lemmaService;
 
     @Override
     public void startIndexing() {
+
+        if (indexingInProgress) {
+            log.warn("Indexing is already in progress.");
+            return;
+        }
+
         indexingInProgress = true;
         ExecutorService executorService = Executors.newFixedThreadPool(sitesConfig.getSites().size());
         List<Future<?>> futures = new CopyOnWriteArrayList<>();
@@ -51,6 +59,8 @@ public class IndexingServiceImpl implements IndexingService {
                         throw new InterruptedException(); // Проверка прерывания потока
                     }
                     processSite(site, sitesConfig.getReferrer(), sitesConfig.getUserAgent());
+
+
                 } catch (InterruptedException e) {
                     log.warn("Task was interrupted: " + Thread.currentThread().getName());
                     notifyClients("Indexing interrupted");
@@ -63,38 +73,31 @@ public class IndexingServiceImpl implements IndexingService {
         // Запланировать завершение пула потоков после выполнения всех задач
         executorService.shutdown();
 
-        // Если нужно отслеживать выполнение задач, можно использовать futures
         new Thread(() -> {
-            boolean allTasksCompleted = true;
-            for (Future<?> future : futures) {
-                try {
-                    future.get(); // Это будет блокировать текущий поток, но не основной
-                } catch (Exception e) {
-                    log.warn("Exception occurred while waiting for task completion: " + e.getMessage());
-                    allTasksCompleted = false;
+            try {
+                for (Future<?> future : futures) {
+                    future.get();
+                    // Блокировка до завершения всех задач
                 }
-            }
-            if (allTasksCompleted) {
-                log.info("All tasks completed.");
                 visitedLinks.clear();
+                log.info("All tasks completed.");
                 notifyClients("Indexing completed");
-            } else {
-                log.warn("Indexing was interrupted.");
+
+            } catch (Exception e) {
+                log.warn("Exception occurred while waiting for task completion: " + e.getMessage());
+            } finally {
+                indexingInProgress = false;
             }
-            indexingInProgress = false;
         }).start();
     }
 
     private void processSite(Site site, String referrer, String userAgent) throws InterruptedException {
-        // Пример проверки флага прерывания
         if (Thread.currentThread().isInterrupted()) {
             throw new InterruptedException();
         }
 
-        // Удаление существующих данных
         deleteExistingData(site.getUrl());
 
-        // Создание новой записи в таблице site со статусом INDEXING
         WebSite webSite = new WebSite();
         webSite.setUrl(site.getUrl());
         webSite.setName(site.getName());
@@ -102,31 +105,42 @@ public class IndexingServiceImpl implements IndexingService {
         webSite.setStatusTime(LocalDateTime.now());
         webSiteRepository.save(webSite);
 
-        // Начало обхода страниц сайта
         ForkJoinPool forkJoinPool = new ForkJoinPool();
         forkJoinPoolList.add(forkJoinPool);
-        forkJoinPool.invoke(new PageCrawler(webSite, webSiteRepository, webPageRepository, site.getUrl(), userAgent, referrer));
+        forkJoinPool.invoke(new PageCrawler(webSite, webSiteRepository, webPageRepository, site.getUrl(), userAgent, referrer, lemmaService));
 
-        // Изменение статуса на INDEXED после успешного обхода
         webSite.setStatus(Status.INDEXED);
+        webSite.setStatusTime(LocalDateTime.now());
         webSiteRepository.save(webSite);
     }
 
+    public void deleteWebPage(Integer webPageId) {
+        WebPage webPage = webPageRepository.findById(webPageId)
+                .orElseThrow(() -> new RuntimeException("WebPage not found with id " + webPageId));
+
+        // Удаление зависимых записей Index
+        indexRepository.deleteByPage(webPage);
+        // Удаление WebPage
+        webPageRepository.delete(webPage);
+    }
+
     private void deleteExistingData(String siteUrl) {
-        // Удаление данных из таблицы page по указанному siteUrl
-        webPageRepository.deleteByWebSiteUrl(siteUrl);
-        // Удаление данных из таблицы site по указанному siteUrl
+        WebSite webSite = webSiteRepository.findByUrl(siteUrl);
+        webPageRepository.findAllByWebSite(webSite).forEach(p -> deleteWebPage(p.getId()));
+        List<Lemma> allByWebSite = lemmaRepository.findAllByWebSite(webSite);
+        lemmaRepository.deleteAll(allByWebSite);
+
         webSiteRepository.deleteByUrl(siteUrl);
     }
 
     @Override
     public void stopIndexing() {
-        indexingInProgress = false;
-        // Прерывание потоков
-        threads.forEach(Thread::interrupt);
-        threads.clear();
+        if (!indexingInProgress) {
+            log.warn("No indexing in progress to stop.");
+            return;
+        }
 
-        // Завершение работы ForkJoinPool
+        indexingInProgress = false;
         forkJoinPoolList.forEach(pool -> {
             pool.shutdownNow();
             try {
@@ -139,7 +153,6 @@ public class IndexingServiceImpl implements IndexingService {
         });
         forkJoinPoolList.clear();
 
-        // Обновление статуса сайтов
         for (WebSite webSite : webSiteRepository.findByStatus(Status.INDEXING)) {
             webSite.setStatus(Status.FAILED);
             webSite.setStatusTime(LocalDateTime.now());
@@ -147,10 +160,8 @@ public class IndexingServiceImpl implements IndexingService {
             webSiteRepository.save(webSite);
         }
 
-        // Уведомление клиентов о прерывании индексации
         notifyClients("Indexing interrupted by user");
     }
-
 
     public SseEmitter getStatusEmitter() {
         SseEmitter emitter = new SseEmitter(Long.MAX_VALUE); // Устанавливаем максимальный тайм-аут
@@ -184,47 +195,106 @@ public class IndexingServiceImpl implements IndexingService {
     }
 
     @Override
-    public boolean indexPage(String url) {
+    public WebPage indexPage(String url) {
         Site site = isPageFromSite(url);
-        if (site != null) {
-            log.info("Site {}", site);
+        if (site != null && !isInValidStatusCode(url)) {
+            log.info("Site {}", site.getName());
             WebSite webSite = webSiteRepository.findByUrl(site.getUrl());
+            WebPage webPage;
             if (webSite == null) {
-                // Создание новой записи в таблице site со статусом INDEXING
                 webSite = new WebSite();
                 webSite.setUrl(site.getUrl());
                 webSite.setName(site.getName());
                 webSite.setStatus(Status.INDEXING);
                 webSite.setStatusTime(LocalDateTime.now());
                 webSiteRepository.save(webSite);
-            } else {
-                if (webPageRepository.existsWebPageByPath(url)) {
-                    System.out.println("Page is already indexed");
-                    //очищаем все об этой странице из таблиц page lemma index
-                    webPageRepository.deleteWebPageByPath(url);
-                }
+            } else if (webPageRepository.existsWebPageByPath(url)) {
+                log.info("Page is already indexed. Reindexing...");
+                webPage = webPageRepository.findByPath(url);
+                deleteWebPage(webPage.getId());
+            } else if (webPageRepository.existsWebPageByPath(addOrRemoveWww(url))) {
+                log.info("Page is already indexed. Reindexing...");
+                url = addOrRemoveWww(url);
+                webPage = webPageRepository.findByPath(url);
+                deleteWebPage(webPage.getId());
             }
-            parsePage(url, webSite);
-            return true;
+            webPage = parsePage(url, webSite);
+            return webPage;
         }
-        return false;
+        return null;
     }
 
-    private void parsePage(String url, WebSite webSite) {
+    private String addOrRemoveWww(String url) {
+        if (url == null || url.isEmpty()) {
+            return url;
+        }
+
+        String wwwPrefix = "www.";
+        String protocolSeparator = "://";
+        int protocolIndex = url.indexOf(protocolSeparator);
+        String protocol = "";
+
+        // Извлечение протокола (http, https и т.д.)
+        if (protocolIndex != -1) {
+            protocol = url.substring(0, protocolIndex + protocolSeparator.length());
+            url = url.substring(protocolIndex + protocolSeparator.length());
+        }
+
+        if (url.startsWith(wwwPrefix)) {
+            // Удаляем "www." если оно присутствует
+            return protocol + url.substring(wwwPrefix.length());
+        } else {
+            // Добавляем "www." если его нет
+            return protocol + wwwPrefix + url;
+        }
+    }
+
+    private boolean isInValidStatusCode(String url) {
+        int statusCode = 0;
+        try {
+            statusCode = Jsoup.connect(url).execute().statusCode();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+        // Если код ответа 4xx или 5xx, не индексируем страницу
+        return statusCode >= 400 && statusCode < 600;
+    }
+
+    @Override
+    public String getContentByUrl(String url) {
+        WebPage webPage = webPageRepository.findByPath(url);
+        return webPage != null ? webPage.getContent() : null;
+    }
+
+    @Override
+    public WebSite getWebSiteByUrl(String url) {
+        WebSite webSite = webSiteRepository.findByUrl(url);
+        if (webSite == null) {
+            url = addWWWIfAbsent(url);
+            webSite = webSiteRepository.findByUrl(url);
+        }
+        return webSite;
+    }
+
+    public String addWWWIfAbsent(String url) {
+        if (url.matches("^(http://|https://)www\\..*")) {
+            return url;
+        }
+        String regex = "^(http://|https://)";
+        return url.replaceAll(regex, "$1www.");
+    }
+
+    private WebPage parsePage(String url, WebSite webSite) {
         Connection.Response response;
         Document document;
         try {
             response = Jsoup.connect(url).execute();
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-
-        try {
             document = response.parse();
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
-        log.info("\nParsing page: " + url);
+
+        log.info("Parsing page: " + url);
         WebPage webPage = new WebPage();
         webPage.setCode(response.statusCode());
         webPage.setPath(url);
@@ -234,6 +304,7 @@ public class IndexingServiceImpl implements IndexingService {
         webSite.setStatusTime(LocalDateTime.now());
         webSiteRepository.save(webSite);
         webPageRepository.save(webPage);
+        return webPage;
     }
 
     private Site isPageFromSite(String pageUrl) {
@@ -245,16 +316,33 @@ public class IndexingServiceImpl implements IndexingService {
                 URL siteUrl = new URL(site.getUrl());
                 String siteHost = siteUrl.getHost().replaceFirst("^www\\.", "");
 
-                // Сравниваем домены
                 if (pageHost.equalsIgnoreCase(siteHost)) {
                     return site;
                 }
             }
         } catch (MalformedURLException e) {
             log.error("MalformedURLException {}", e.getMessage());
-            return null;
         }
-
         return null;
+    }
+
+    @Override
+    public Long getWebPagesCount() {
+        return webPageRepository.count();
+    }
+
+    @Override
+    public Long getWebSitesCount() {
+        return webSiteRepository.count();
+    }
+
+    @Override
+    public List<WebSite> getAllWebSites() {
+        return webSiteRepository.findAll();
+    }
+
+    @Override
+    public Long getCountByWebSite(WebSite site) {
+        return webPageRepository.getCountByWebSite(site);
     }
 }

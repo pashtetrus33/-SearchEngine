@@ -1942,7 +1942,6 @@ var Tabs = function(){
             // $links.removeClass('Tabs-link_ACTIVE');
             // $step.eq(0).addClass('Tabs-link_ACTIVE');
             // $active.show(0);
-
             $tabsLink.on('click', function(e){
                 var $this = $(this);
                 var href = $this.attr('href');
@@ -1950,6 +1949,7 @@ var Tabs = function(){
                     e.preventDefault();
                     var $parent = $this.closest($tabs);
                     if ($parent.hasClass('Tabs_steps')) {
+                        // Добавьте обработку для вкладок, если они используются
                     } else {
                         var $blocks = $parent.find($tabsBlock).not($parent.find($tabs).find($tabsBlock));
                         var $links= $this.add($this.siblings($tabsLink));
@@ -1958,9 +1958,137 @@ var Tabs = function(){
                         $this.addClass('Tabs-link_ACTIVE');
                         $blocks.hide(0);
                         $active.show(0);
+
+                        // Проверка для вкладки Dashboard
+                        if (href === '#dashboard') {
+                            function sendData(address, type, data, cb, $this) {
+                                $.ajax({
+                                    url: backendApiUrl + address,
+                                    type: type,
+                                    dataType: 'json',
+                                    data: data,
+                                    complete: function(result) {
+                                        if (result.status >= 200 && result.status <= 500) {
+                                            cb(result.responseJSON, $this, data);
+                                        } else {
+                                            alert('Ошибка ' + result.status);
+                                        }
+                                    }
+                                });
+                            }
+
+                            var send = {
+                                statistics: {
+                                    address: '/statistics',
+                                    type: 'get',
+                                    action: function(result, $this){
+                                        if (result.result){
+                                            if ($this.next('.API-error').length) {
+                                                $this.next('.API-error').remove();
+                                            }
+
+                                            var $statistics = $('.Statistics');
+                                            $statistics.find('.HideBlock').not('.Statistics-example').remove();
+                                            $('#totalSites').text(result.statistics.total.sites);
+                                            $('#totalPages').text(result.statistics.total.pages);
+                                            $('#totalLemmas').text(result.statistics.total.lemmas);
+                                            $('select[name="site"] option').not(':first-child').remove();
+                                            result.statistics.detailed.forEach(function(site){
+                                                var $blockSiteExample = $('.Statistics-example').clone(true);
+                                                var statusClass = '';
+                                                switch (site.status) {
+                                                    case 'INDEXED':
+                                                        statusClass = 'Statistics-status_checked';
+                                                        break;
+                                                    case 'FAILED':
+                                                        statusClass = 'Statistics-status_cancel';
+                                                        break;
+                                                    case 'INDEXING':
+                                                        statusClass = 'Statistics-status_pause';
+                                                        break;
+
+                                                }
+                                                $('select[name="site"]').append('' +
+                                                    '<option value="' + site.url + '">' +
+                                                    site.url +
+                                                    '</option>')
+                                                $blockSiteExample.removeClass('Statistics-example');
+                                                $blockSiteExample.find('.Statistics-status')
+                                                    .addClass(statusClass)
+                                                    .text(site.status)
+                                                    .before(site.name + ' - ' + site.url);
+                                                var time = new Date(site.statusTime);
+                                                $blockSiteExample.find('.Statistics-description')
+                                                    .html('<div class="Statistics-option"><strong>Status time:</strong> ' +
+                                                        time.getDate() + '.' +
+                                                        (time.getMonth() + 1) + '.' +
+                                                        time.getFullYear() + ' ' +
+                                                        time.getHours() + ':' +
+                                                        time.getMinutes() + ':' +
+                                                        time.getSeconds() +
+                                                        '</div><div class="Statistics-option"><strong>Pages:</strong> ' + site.pages +
+                                                        '</div><div class="Statistics-option"><strong>Lemmas:</strong> ' + site.lemmas +
+                                                        '</div><div class="Statistics-option Statistics-option_error"><strong>Error:</strong> ' + site.error + '</div>'+
+                                                        '')
+
+
+                                                $statistics.append($blockSiteExample);
+                                                var $thisHideBlock = $statistics.find('.HideBlock').last();
+                                                $thisHideBlock.on('click', HideBlock().trigger);
+
+
+                                                $('.Tabs_column > .Tabs-wrap > .Tabs-block').each(function(){
+                                                    var $this = $(this);
+                                                    if ($this.is(':hidden')){
+                                                        $this.addClass('Tabs-block_update')
+                                                    };
+                                                });
+                                                $statistics.find('.HideBlock').each(function(){
+                                                    var $this = $(this);
+                                                    var height = $this.find('.Statistics-description').outerHeight();
+                                                    $this.find('.HideBlock-content').css('height', height + 40);
+                                                });
+                                                $('.Tabs_column > .Tabs-wrap > .Tabs-block_update').each(function(){
+                                                    var $this = $(this);
+                                                    $this.removeClass('Tabs-block_update')
+                                                });
+                                            });
+                                            if (result.statistics.total.isIndexing) {
+                                                var $btnIndex = $('.btn[data-send="stopIndexing"]'),
+                                                    text = $btnIndex.find('.btn-content').text();
+                                                $btnIndex.find('.btn-content').text($btnIndex.data('alttext'));
+                                                $btnIndex
+                                                    .data('check', true)
+                                                    .data('altsend', 'stopIndexing')
+                                                    .data('send', 'startIndexing')
+                                                    .data('alttext', text)
+                                                    .addClass('btn_check')
+                                                $('.UpdatePageBlock').hide(0)
+                                            }
+
+                                        } else {
+                                            if ($this.next('.API-error').length) {
+                                                $this.next('.API-error').text(result.error);
+                                            } else {
+                                                $this.after('<div class="API-error">' + result.error + '</div>');
+                                            }
+                                        }
+                                        $('.Site-loader').hide(0);
+                                        $('.Site-loadingIsComplete').css('visibility', 'visible').fadeIn(500);
+                                    }
+                                }
+                            };
+                            debugger;
+                            sendData(
+                                send['statistics'].address,
+                                send['statistics'].type,
+                                '',
+                                send['statistics'].action,
+                                $('.Statistics')
+                            )
+                        }
                     }
                 }
-
             });
             $('.TabsLink').on('click', function(e){
                 var $this = $(this);
@@ -2003,8 +2131,6 @@ Tabs().init();
 //     $('body').css('opacity', '1');
 // }, 100);
 });
-
-
 
 })(jQuery);
 

@@ -9,7 +9,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import searchengine.dto.statistics.StatisticsResponse;
+import searchengine.model.WebPage;
 import searchengine.services.IndexingService;
+import searchengine.services.LemmaService;
 import searchengine.services.StatisticsService;
 
 @Slf4j
@@ -20,11 +22,13 @@ public class ApiController {
 
     private final StatisticsService statisticsService;
     private final IndexingService indexingService;
+    private final LemmaService lemmaService;
 
     @GetMapping("/statistics")
     public ResponseEntity<StatisticsResponse> statistics() {
         return ResponseEntity.ok(statisticsService.getStatistics());
     }
+
 
     @GetMapping("/startIndexing")
     public ResponseEntity<String> startIndexing() {
@@ -84,8 +88,11 @@ public class ApiController {
         JSONObject response = new JSONObject();
 
         try {
-            if (indexingService.indexPage(url)) {
+            WebPage webPage = indexingService.indexPage(url);
+            if (webPage != null) {
                 response.put("result", true);
+                lemmaService.saveAllLemmas(webPage);
+
             } else {
                 response.put("result", false);
                 response.put("error", "Данная страница находится за пределами сайтов, " +

@@ -9,6 +9,7 @@ import searchengine.model.WebPage;
 import searchengine.model.WebSite;
 import searchengine.repositories.WebPageRepository;
 import searchengine.repositories.WebSiteRepository;
+import searchengine.services.LemmaService;
 
 import java.io.IOException;
 import java.net.SocketTimeoutException;
@@ -23,16 +24,17 @@ public class PageCrawler extends RecursiveAction {
     private static final int MIN_DELAY = 100; // Минимальная задержка в миллисекундах
     private static final int MAX_DELAY = 150; // Максимальная задержка в миллисекундах
     public static final CopyOnWriteArraySet<String> visitedLinks = new CopyOnWriteArraySet<>();
-
     private final String url;
     private final WebSiteRepository webSiteRepository;
     private final WebPageRepository webPageRepository;
     private final String userAgent;
     private final String referrer;
     private final WebSite webSite;
+    private final LemmaService lemmaService;
 
 
-    public PageCrawler(WebSite webSite, WebSiteRepository webSiteRepository, WebPageRepository webPageRepository, String url, String userAgent, String referrer) {
+    public PageCrawler(WebSite webSite, WebSiteRepository webSiteRepository, WebPageRepository webPageRepository, String url, String userAgent, String referrer, LemmaService lemmaService) {
+        this.lemmaService = lemmaService;
         this.url = url;
         this.webSiteRepository = webSiteRepository;
         this.webPageRepository = webPageRepository;
@@ -68,6 +70,9 @@ public class PageCrawler extends RecursiveAction {
                     if (isLink(url) && !isFile(url)) {
                         log.info("\nParsing page: " + url);
                         WebPage webPage = new WebPage();
+                        if (response.statusCode() >= 400 && response.statusCode() < 600) {
+                            return;
+                        }
                         webPage.setCode(response.statusCode());
                         webPage.setPath(url);
                         webPage.setContent(document.html());
@@ -75,6 +80,8 @@ public class PageCrawler extends RecursiveAction {
                         webSite.setStatusTime(LocalDateTime.now());
                         webSiteRepository.save(webSite);
                         webPageRepository.save(webPage);
+
+                        lemmaService.saveAllLemmas(webPage);
                     }
 
                     List<PageCrawler> taskList = new ArrayList<>();
@@ -87,7 +94,7 @@ public class PageCrawler extends RecursiveAction {
                                 return;
                             }
 
-                            PageCrawler task = new PageCrawler(webSite, webSiteRepository, webPageRepository, link, userAgent, referrer);
+                            PageCrawler task = new PageCrawler(webSite, webSiteRepository, webPageRepository, link, userAgent, referrer, lemmaService);
                             task.fork(); // Отправляем задачу (запускаем асинхронно относительно текущего потока)
                             taskList.add(task);
                         }
