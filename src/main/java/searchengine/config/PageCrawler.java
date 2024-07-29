@@ -13,6 +13,8 @@ import searchengine.services.LemmaService;
 
 import java.io.IOException;
 import java.net.SocketTimeoutException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -24,18 +26,19 @@ public class PageCrawler extends RecursiveAction {
     private static final int MIN_DELAY = 100; // Минимальная задержка в миллисекундах
     private static final int MAX_DELAY = 150; // Максимальная задержка в миллисекундах
     public static final CopyOnWriteArraySet<String> visitedLinks = new CopyOnWriteArraySet<>();
-    private final String url;
+    private String url;
     private final WebSiteRepository webSiteRepository;
     private final WebPageRepository webPageRepository;
+
+    private final LemmaService lemmaService;
     private final String userAgent;
     private final String referrer;
     private final WebSite webSite;
-    private final LemmaService lemmaService;
 
 
     public PageCrawler(WebSite webSite, WebSiteRepository webSiteRepository, WebPageRepository webPageRepository, String url, String userAgent, String referrer, LemmaService lemmaService) {
-        this.lemmaService = lemmaService;
         this.url = url;
+        this.lemmaService = lemmaService;
         this.webSiteRepository = webSiteRepository;
         this.webPageRepository = webPageRepository;
         this.userAgent = userAgent;
@@ -51,6 +54,8 @@ public class PageCrawler extends RecursiveAction {
                 visitedLinks.clear();
                 return;
             }
+            checkUrl(url);
+
             if (visitedLinks.add(url)) {
                 try {
                     Thread.sleep(MIN_DELAY + (int) (Math.random() * (MAX_DELAY - MIN_DELAY)));
@@ -74,13 +79,13 @@ public class PageCrawler extends RecursiveAction {
                             return;
                         }
                         webPage.setCode(response.statusCode());
-                        webPage.setPath(url);
+
+                        webPage.setPath(getRelativeUrl(url));
                         webPage.setContent(document.html());
                         webPage.setWebSite(webSite);
                         webSite.setStatusTime(LocalDateTime.now());
                         webSiteRepository.save(webSite);
                         webPageRepository.save(webPage);
-
                         lemmaService.saveAllLemmas(webPage);
                     }
 
@@ -123,10 +128,40 @@ public class PageCrawler extends RecursiveAction {
         }
     }
 
-    private boolean isLink(String link) {
-        String cleanedUrl = cleanBaseUrl();
-        return link.contains(cleanedUrl) && !link.contains("#");
+    private void checkUrl(String url) {
+        if (!url.endsWith("/")) {
+            this.url = url + "/";
+        }
     }
+
+    private String getRelativeUrl(String url) {
+        String baseUrl = webSite.getUrl();
+        url = "/" + url.substring(baseUrl.length());
+        return url;
+    }
+
+    private boolean isLink(String link) {
+        try {
+            // Получаем URI из ссылки, которую нужно проверить
+            URI linkUri = new URI(link);
+            if (linkUri.getHost() == null) {
+                return false;
+            }
+
+            // Получаем хост из базового URL (без протокола)
+            URI baseUri = new URI("http://" + cleanBaseUrl());
+            if (baseUri.getHost() == null) {
+                return false;
+            }
+
+            // Сравниваем хосты (домены)
+            return linkUri.getHost().equals(baseUri.getHost()) && !link.contains("#");
+        } catch (URISyntaxException e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
 
     private boolean isFile(String link) {
         link = link.toLowerCase();

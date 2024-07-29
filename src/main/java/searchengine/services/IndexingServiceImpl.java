@@ -6,7 +6,6 @@ import org.jsoup.Connection;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import searchengine.config.Site;
 import searchengine.config.PageCrawler;
@@ -80,7 +79,8 @@ public class IndexingServiceImpl implements IndexingService {
                     // Блокировка до завершения всех задач
                 }
                 visitedLinks.clear();
-                log.info("All tasks completed.");
+                log.info("All crawler tasks completed.");
+                List<WebPage> webPageList = webPageRepository.findAll();
                 notifyClients("Indexing completed");
 
             } catch (Exception e) {
@@ -108,7 +108,6 @@ public class IndexingServiceImpl implements IndexingService {
         ForkJoinPool forkJoinPool = new ForkJoinPool();
         forkJoinPoolList.add(forkJoinPool);
         forkJoinPool.invoke(new PageCrawler(webSite, webSiteRepository, webPageRepository, site.getUrl(), userAgent, referrer, lemmaService));
-
         webSite.setStatus(Status.INDEXED);
         webSite.setStatusTime(LocalDateTime.now());
         webSiteRepository.save(webSite);
@@ -261,12 +260,6 @@ public class IndexingServiceImpl implements IndexingService {
     }
 
     @Override
-    public String getContentByUrl(String url) {
-        WebPage webPage = webPageRepository.findByPath(url);
-        return webPage != null ? webPage.getContent() : null;
-    }
-
-    @Override
     public WebSite getWebSiteByUrl(String url) {
         WebSite webSite = webSiteRepository.findByUrl(url);
         if (webSite == null) {
@@ -274,6 +267,16 @@ public class IndexingServiceImpl implements IndexingService {
             webSite = webSiteRepository.findByUrl(url);
         }
         return webSite;
+    }
+
+    @Override
+    public int getTotalPagesCount() {
+        return (int) webPageRepository.count();
+    }
+
+    @Override
+    public List<WebSite> getAllWebSites() {
+        return webSiteRepository.findAll();
     }
 
     public String addWWWIfAbsent(String url) {
@@ -324,25 +327,5 @@ public class IndexingServiceImpl implements IndexingService {
             log.error("MalformedURLException {}", e.getMessage());
         }
         return null;
-    }
-
-    @Override
-    public Long getWebPagesCount() {
-        return webPageRepository.count();
-    }
-
-    @Override
-    public Long getWebSitesCount() {
-        return webSiteRepository.count();
-    }
-
-    @Override
-    public List<WebSite> getAllWebSites() {
-        return webSiteRepository.findAll();
-    }
-
-    @Override
-    public Long getCountByWebSite(WebSite site) {
-        return webPageRepository.getCountByWebSite(site);
     }
 }

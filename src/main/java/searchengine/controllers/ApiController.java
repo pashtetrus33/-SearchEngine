@@ -8,10 +8,12 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import searchengine.dto.search.SearchResponse;
 import searchengine.dto.statistics.StatisticsResponse;
 import searchengine.model.WebPage;
 import searchengine.services.IndexingService;
 import searchengine.services.LemmaService;
+import searchengine.services.SearchService;
 import searchengine.services.StatisticsService;
 
 @Slf4j
@@ -23,6 +25,7 @@ public class ApiController {
     private final StatisticsService statisticsService;
     private final IndexingService indexingService;
     private final LemmaService lemmaService;
+    private final SearchService searchService;
 
     @GetMapping("/statistics")
     public ResponseEntity<StatisticsResponse> statistics() {
@@ -104,5 +107,18 @@ public class ApiController {
 
 
         return new ResponseEntity<>(response.toString(), HttpStatus.OK);
+    }
+
+    @GetMapping("/search")
+    public ResponseEntity<SearchResponse> search(@RequestParam(value = "query") String query,
+                                                 @RequestParam(value = "site", required = false) String site,
+                                                 @RequestParam(value = "offset", defaultValue = "0") Integer offset,
+                                                 @RequestParam(value = "limit", defaultValue = "10") Integer limit) {
+        log.info("In ApiController search: query - {}", query);
+        SearchResponse response = searchService.search(query.trim(), site, offset, limit);
+        if (!response.isResult()) {
+            return new ResponseEntity<>(response, HttpStatus.BAD_REQUEST);
+        }
+        return ResponseEntity.ok(response);
     }
 }

@@ -6,6 +6,7 @@ import searchengine.model.WebSite;
 
 import java.util.List;
 
+
 public interface IndexingService {
     void startIndexing();
 
@@ -17,15 +18,9 @@ public interface IndexingService {
 
     WebPage indexPage(String url);
 
-    String getContentByUrl(String url);
-
     WebSite getWebSiteByUrl(String url);
 
-    Long getWebPagesCount();
-
-    Long getWebSitesCount();
+    int getTotalPagesCount();
 
     List<WebSite> getAllWebSites();
-
-    Long getCountByWebSite(WebSite site);
 }
