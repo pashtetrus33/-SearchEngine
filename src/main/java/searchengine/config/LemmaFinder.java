@@ -8,7 +8,10 @@ import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.safety.Safelist;
 
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.ObjectInputStream;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -22,7 +25,7 @@ public class LemmaFinder {
     private static final Pattern RUSSIAN_PATTERN = Pattern.compile("[а-яА-Я]");
     private static final Pattern ENGLISH_PATTERN = Pattern.compile("[a-zA-Z]");
 
-    private final ConcurrentMap<String, Set<String>> lemmaFormsMap = new ConcurrentHashMap<>();
+    private ConcurrentMap<String, Set<String>> lemmaFormsMap;
 
     public static LemmaFinder getInstance() throws IOException {
         LuceneMorphology russianMorphology = new RussianLuceneMorphology();
@@ -33,6 +36,7 @@ public class LemmaFinder {
     private LemmaFinder(LuceneMorphology russianMorphology, LuceneMorphology englishMorphology) {
         this.russianMorphology = russianMorphology;
         this.englishMorphology = englishMorphology;
+        lemmaFormsMap = loadLemmaForms("lemma-forms.txt");
     }
 
     private LemmaFinder() {
@@ -68,6 +72,31 @@ public class LemmaFinder {
 
         return lemmas;
     }
+
+    @SuppressWarnings("unchecked")
+    public ConcurrentHashMap<String, Set<String>> loadLemmaForms(String fileName) {
+        ConcurrentHashMap<String, Set<String>> map = new ConcurrentHashMap<>();
+        File file = new File(fileName);
+        if (!file.exists() || file.length() == 0) {
+            // Файл не существует или пустой, возвращаем пустую карту
+            return map;
+        }
+        try (FileInputStream fileIn = new FileInputStream(fileName);
+             ObjectInputStream in = new ObjectInputStream(fileIn)) {
+            Object obj = in.readObject();
+            if (obj instanceof ConcurrentHashMap) {
+                map = (ConcurrentHashMap<String, Set<String>>) obj;
+            } else if (obj instanceof Map) {
+                map.putAll((Map<String, Set<String>>) obj);
+            } else {
+                throw new IOException("Unexpected data format");
+            }
+        } catch (IOException | ClassNotFoundException e) {
+            e.printStackTrace();
+        }
+        return map;
+    }
+
 
     private void processWord(String word, LuceneMorphology morphology, HashMap<String, Integer> lemmas) {
         List<String> wordBaseForms;

@@ -30,8 +30,12 @@ public class SearchServiceImpl implements SearchService {
         if (query == null || query.trim().isEmpty()) {
             return createErrorResponse("Задан пустой поисковый запрос");
         }
-        if (site != null && !isSiteIndexed(site)) {
-            return createErrorResponse("Cайт не найден или еще не проиндексирован");
+
+        if (site != null) {
+            if (!isSiteIndexed(site)) {
+                return createErrorResponse("Cайт не найден или еще не проиндексирован");
+            }
+
         } else {
             if (indexingService.getAllWebSites().size() == 0 || indexingService.getAllWebSites().stream().anyMatch(e -> !e.getStatus().equals(Status.INDEXED))) {
                 SearchResponse response = new SearchResponse();
@@ -40,6 +44,7 @@ public class SearchServiceImpl implements SearchService {
                 return response;
             }
         }
+
 
         List<String> lemmas = extractLemmas(query);
         if (lemmas.isEmpty()) {

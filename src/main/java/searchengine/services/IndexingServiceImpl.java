@@ -16,11 +16,15 @@ import searchengine.repositories.LemmaRepository;
 import searchengine.repositories.WebPageRepository;
 import searchengine.repositories.WebSiteRepository;
 
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.ObjectOutputStream;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.*;
 
 import static searchengine.config.PageCrawler.visitedLinks;
@@ -82,6 +86,7 @@ public class IndexingServiceImpl implements IndexingService {
                 log.info("All crawler tasks completed.");
                 List<WebPage> webPageList = webPageRepository.findAll();
                 notifyClients("Indexing completed");
+                saveMap(lemmaService.getLemmaForms(), "lemma-forms.txt");
 
             } catch (Exception e) {
                 log.warn("Exception occurred while waiting for task completion: " + e.getMessage());
@@ -89,6 +94,16 @@ public class IndexingServiceImpl implements IndexingService {
                 indexingInProgress = false;
             }
         }).start();
+    }
+
+    public void saveMap(Map<String, Set<String>> map, String fileName) {
+        try (FileOutputStream fileOut = new FileOutputStream(fileName);
+             ObjectOutputStream out = new ObjectOutputStream(fileOut)) {
+            out.writeObject(map);
+            log.info("Lemma forms are written to file");
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
     private void processSite(Site site, String referrer, String userAgent) throws InterruptedException {
