@@ -105,14 +105,14 @@
         sql:
           init:
             data-locations: classpath:import.sql
-            mode: always
+            mode: embedded
          
       indexing-settings:
         sites:
           - url: https://sendel.ru/
             name: Sendel.ru
-          - url: https://playback.ru
-            name: PlayBack.ru
+          - url: https://ipfran.ru/
+            name: Ipfran.ru
         referrer: https://www.google.com
         user-agent: HeliontSearchBot
         ```
